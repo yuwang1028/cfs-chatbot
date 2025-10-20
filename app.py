@@ -32,12 +32,12 @@ prompt = st.text_area("💬 Ask your question about investing/retiring in Austra
 def get_ai_explanation(prompt_text):
     try:
         response = client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-4o",
             messages=[
                 {"role": "system", "content": "You are a helpful retirement financial advisor focusing on Australia."},
                 {"role": "user", "content": prompt_text},
             ],
-            temperature=0.6,
+            temperature=0.2,
             max_tokens=400
         )
         return response.choices[0].message.content.strip()
