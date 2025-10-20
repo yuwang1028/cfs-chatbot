@@ -4,6 +4,9 @@ import numpy as np
 import os
 from io import BytesIO
 from openai import OpenAI
+import matplotlib.ticker as ticker
+
+
 
 # --- Setup OpenAI client ---
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -62,9 +65,8 @@ def simulate_growth(start=120000, annual_contrib=10000, retire_age=65, age=35, e
 
     return balances, age
 
-# --- Generate Professional Plot ---
 def generate_plot(sim_result, start_age):
-    import matplotlib.ticker as ticker
+
 
     total_years = len(sim_result)
     age_labels = list(range(start_age, start_age + total_years))
@@ -72,7 +74,8 @@ def generate_plot(sim_result, start_age):
     fig, ax = plt.subplots(figsize=(10, 6))
     ax.plot(age_labels, sim_result, marker='o', linewidth=2.5, color="#0066CC", label="Projected Balance")
     ax.axvline(x=65, linestyle='--', color='gray', linewidth=1.5)
-    ax.text(65 + 0.5, max(sim_result)*0.95, 'Retirement Age', color='gray')
+    ax.text(65 + 0.5, max(sim_result)*0.85, 'Retirement Age', color='gray', fontsize=12)
+
 
     ax.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.7)
     ax.set_facecolor("#FAFAFA")
@@ -87,14 +90,22 @@ def generate_plot(sim_result, start_age):
     ax.yaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"${x:,.0f}"))
 
     max_idx = np.argmax(sim_result)
-    ax.annotate(f"Peak: ${int(sim_result[max_idx]):,}",
-                xy=(age_labels[max_idx], sim_result[max_idx]),
-                xytext=(age_labels[max_idx]+1, sim_result[max_idx]*1.05),
-                arrowprops=dict(arrowstyle='->', color='green'),
-                fontsize=12, color='green')
-    ax.legend()
+    peak_y = sim_result[max_idx]
+    peak_x = age_labels[max_idx]
+    ax.annotate(
+        f"Peak: ${int(peak_y):,}",
+        xy=(peak_x, peak_y),
+        xytext=(peak_x + 1, peak_y * 0.92),  # 向下移动注释
+        arrowprops=dict(arrowstyle='->', color='green', lw=2),
+        fontsize=12,
+        color='green'
+    )
+
+    ax.legend(fontsize=11)
+    fig.tight_layout()  # ✅ 防止所有重叠
 
     return fig
+
 
 # --- Download Function ---
 def convert_plot_to_bytes(fig, filetype='png'):
