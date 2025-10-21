@@ -1,13 +1,13 @@
 import streamlit as st
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 import numpy as np
 import os
 from io import BytesIO
 from openai import OpenAI
-import matplotlib.ticker as ticker
 import re
 
-# --- Setup OpenAI client ---
+# --- Setup OpenAI Client ---
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # --- Streamlit Config ---
@@ -19,55 +19,65 @@ Ask questions about **investing or retiring in Australia**, and the AI will anal
 Example questions you can ask:
 - "Can I retire at 60 with 200k AUD and spend 40k a year?"
 - "How much should I save annually to retire comfortably in Sydney?"
-- "If I invest $10k per year until 67, how much will I have?"
-- "Will $50,000 a year last until I'm 85?"
-- "I’m 40 with 150k in super, plan to retire at 63 and spend 55k per year."
+- "Is it better to invest in real estate or superannuation in Australia?"
+- "What’s the expected return of Australian pension funds?"
 """)
 
 # --- User Prompt ---
-prompt = st.text_area("💬 Ask your question about investing/retiring in Australia:", placeholder="About investing/retiring in Australia")
+prompt = st.text_area("💬 Ask your question about investing/retiring in Australia:")
 
-# --- Regex-based parameter extraction ---
-def extract_params(text):
-    age_match = re.search(r'age\s*(?:is\s*)?(\d{2})', text, re.IGNORECASE)
-    retire_match = re.search(r'retire (?:at|by)?\s*(\d{2})', text, re.IGNORECASE)
-    savings_match = re.search(r'(\d{1,3}[, ]?\d{3,})(?:\s*(?:AUD|dollars|\$))?', text, re.IGNORECASE)
-    contrib_match = re.search(r'(?:save|contribut(?:e|ing))\s*(?:\$)?(\d{1,3}[, ]?\d{3,})', text, re.IGNORECASE)
-    expense_match = re.search(r'(?:spend|expense|spending)\s*(?:\$)?(\d{1,3}[, ]?\d{3,})', text, re.IGNORECASE)
+# --- Extract Parameters from Prompt ---
+def extract_parameters(prompt_text):
+    extract_prompt = f"""
+You are a financial AI agent. Extract the following 5 numbers from this user question if available:
+- current age
+- retirement age
+- current savings (AUD)
+- annual contribution (AUD)
+- annual expense/spending in retirement (AUD)
 
-    def clean(val):
-        return int(val.replace(',', '').replace(' ', '')) if val else None
+Respond ONLY in JSON like this:
+{{"age": ..., "retire_age": ..., "savings": ..., "annual_contrib": ..., "annual_expense": ...}}. Use null for any missing value.
+Question: "{prompt_text}"
+"""
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": extract_prompt}],
+            temperature=0,
+            max_tokens=150,
+        )
+        match = re.search(r"\{.*\}", response.choices[0].message.content, re.DOTALL)
+        if match:
+            import json
+            return json.loads(match.group())
+        else:
+            return {}
+    except Exception as e:
+        return {}
 
-    return {
-        "age": clean(age_match.group(1)) if age_match else None,
-        "retire_age": clean(retire_match.group(1)) if retire_match else None,
-        "savings": clean(savings_match.group(1)) if savings_match else None,
-        "annual_contrib": clean(contrib_match.group(1)) if contrib_match else None,
-        "annual_expense": clean(expense_match.group(1)) if expense_match else None
-    }
-
-# --- AI Advisor Function ---
+# --- AI Explanation ---
 def get_ai_explanation(prompt_text):
     try:
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": "You are a professional Australian retirement financial advisor."},
+                {"role": "system", "content": "You are a helpful retirement advisor focusing on Australia."},
                 {"role": "user", "content": prompt_text},
             ],
-            temperature=0.3,
+            temperature=0.2,
             max_tokens=400
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
-        return f"Error calling AI model: {e}"
+        return f"Error: {e}"
 
-# --- Pension Simulation Function ---
+# --- Simulation Function ---
 def simulate_growth(start, annual_contrib, retire_age, age, expense, rate=0.06, inflation=0.02, lifespan=88):
     balance = start
     balances = []
-    years_to_retire = retire_age - age
-    years_after = lifespan - retire_age
+    years_to_retire = max(retire_age - age, 0)
+    years_after = max(lifespan - retire_age, 0)
 
     for _ in range(years_to_retire):
         balance *= (1 + rate - inflation)
@@ -83,7 +93,7 @@ def simulate_growth(start, annual_contrib, retire_age, age, expense, rate=0.06, 
 
     return balances, age
 
-# --- Generate Professional Plot ---
+# --- Plot ---
 def generate_plot(sim_result, start_age, retire_age):
     total_years = len(sim_result)
     age_labels = list(range(start_age, start_age + total_years))
@@ -91,9 +101,9 @@ def generate_plot(sim_result, start_age, retire_age):
     fig, ax = plt.subplots(figsize=(10, 6))
     ax.plot(age_labels, sim_result, marker='o', linewidth=2.5, color="#0066CC", label="Projected Balance")
     ax.axvline(x=retire_age, linestyle='--', color='gray', linewidth=1.5)
-    ax.text(retire_age + 0.5, max(sim_result)*0.9, 'Retirement Age', color='gray', fontsize=12)
+    ax.text(retire_age + 0.5, max(sim_result)*0.9, 'Retirement Age', color='gray')
 
-    ax.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.7)
+    ax.grid(True, linestyle='--', linewidth=0.5, alpha=0.7)
     ax.set_facecolor("#FAFAFA")
     fig.patch.set_facecolor("#FAFAFA")
     ax.spines['top'].set_visible(False)
@@ -105,55 +115,50 @@ def generate_plot(sim_result, start_age, retire_age):
     ax.tick_params(axis='both', labelsize=11)
     ax.yaxis.set_major_formatter(ticker.FuncFormatter(lambda x, _: f"${x:,.0f}"))
     ax.legend()
-    fig.tight_layout()
+
     return fig
 
-# --- Download Function ---
+# --- Download ---
 def convert_plot_to_bytes(fig, filetype='png'):
     buf = BytesIO()
     fig.savefig(buf, format=filetype, bbox_inches='tight')
     buf.seek(0)
     return buf
 
-# --- Main Logic ---
+# --- Run Button ---
 if st.button("🔍 Analyze"):
     if prompt.strip():
-        # Step 1: Extract parameters dynamically
-        params = extract_params(prompt)
-        st.markdown("#### 🧾 Extracted parameters")
-        st.json(params)
+        params = extract_parameters(prompt)
+        explanation = get_ai_explanation(prompt)
 
-        # Step 2: Apply defaults for missing values
+        # Set defaults if missing
         age = params.get("age") or 35
         retire_age = params.get("retire_age") or 65
         savings = params.get("savings") or 120000
-        annual_contrib = params.get("annual_contrib") or 10000
-        annual_expense = params.get("annual_expense") or 50000
+        contrib = params.get("annual_contrib") or 10000
+        expense = params.get("annual_expense") or 50000
 
-        # Step 3: AI Text Analysis
         st.markdown("### 🤖 AI Advisor’s Response")
-        result = get_ai_explanation(prompt)
-        st.write(result)
+        st.write(explanation)
 
-        # Step 4: Dynamic Simulation
         st.markdown("### 📈 Projected Pension Balance (Simulation)")
         sim_result, start_age = simulate_growth(
             start=savings,
-            annual_contrib=annual_contrib,
+            annual_contrib=contrib,
             retire_age=retire_age,
             age=age,
-            expense=annual_expense
+            expense=expense
         )
         fig = generate_plot(sim_result, start_age, retire_age)
         st.pyplot(fig)
 
-        # Step 5: Export Buttons
+        # Downloads
         png_buf = convert_plot_to_bytes(fig, 'png')
         pdf_buf = convert_plot_to_bytes(fig, 'pdf')
         st.download_button("📸 Download Chart (PNG)", data=png_buf, file_name="retirement_projection.png", mime="image/png")
         st.download_button("📄 Download Report (PDF)", data=pdf_buf, file_name="retirement_projection.pdf", mime="application/pdf")
 
-        # Step 6: Result Summary
+        # Final Message
         if sim_result[-1] <= 0:
             st.error(f"⚠️ Your savings may run out by age {start_age + len(sim_result) - 1}.")
         else:
